@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { C, VIEW_DAYS, TOTAL_METRICS, PLATFORMS, fmt, fmtMoney, getColor } from '../lib/constants'
 
-// Distinct colors for individual reel lines
 const REEL_COLORS = [
   '#e8a87c','#c084a0','#6db89e','#6aa8d4','#e8c84a',
   '#a084c8','#e87c7c','#84c8a0','#d4a0c8','#84b8d4',
@@ -25,35 +24,35 @@ const Tip = ({ active, payload, label }) => {
   )
 }
 
-// Group reels into calendar weeks (1–7=W1, 8–14=W2, 15–21=W3, 22+=W4)
-function groupIntoWeeks(reels) {
-  const weeks = {}
-  reels.forEach(reel => {
-    if (!reel.date) return
-    const dateObj = new Date(reel.date)
-    const day = dateObj.getDate()
-    const weekNum = Math.ceil(day / 7)
-    const weekKey = `Week ${weekNum}`
-    const startDay = (weekNum - 1) * 7 + 1
-    const endDay = Math.min(weekNum * 7, new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0).getDate())
-    const monthName = dateObj.toLocaleString('default', { month: 'long' })
-    const year = dateObj.getFullYear()
-    const label = `${monthName} ${startDay}–${endDay}`
-    if (!weeks[weekKey]) weeks[weekKey] = { label, reels: [] }
-    weeks[weekKey].reels.push(reel)
-  })
-  return weeks
+function getMonthKey(dateStr) {
+  const d = new Date(dateStr)
+  return `${d.toLocaleString('default', { month: 'long' })} ${d.getFullYear()}`
 }
 
-// Build combined chart data: X = Day1..Day7, each series = one reel
-function buildWeekChart(reels) {
+function getMonthSortKey(dateStr) {
+  const d = new Date(dateStr)
+  return d.getFullYear() * 100 + d.getMonth()
+}
+
+function getWeekNum(dateStr) {
+  const d = new Date(dateStr)
+  return Math.ceil(d.getDate() / 7)
+}
+
+function getWeekLabel(dateStr) {
+  const d = new Date(dateStr)
+  const weekNum = Math.ceil(d.getDate() / 7)
+  const startDay = (weekNum - 1) * 7 + 1
+  const endDay = Math.min(weekNum * 7, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())
+  return { weekKey: `Week ${weekNum}`, range: `${startDay}–${endDay}` }
+}
+
+function buildChartData(reels) {
   return VIEW_DAYS.map(d => {
     const point = { day: d.label }
     reels.forEach(reel => {
       const val = Number(reel[d.key]) || 0
-      if (val > 0 || d.key === 'views_day1') {
-        point[`Reel #${reel.reel_number}`] = val || null
-      }
+      point[`Reel #${reel.reel_number}`] = val > 0 ? val : null
     })
     return point
   })
@@ -62,18 +61,45 @@ function buildWeekChart(reels) {
 export default function ModelPage({ model, reels, onBack }) {
   const color = getColor(model)
 
-  const weeks = useMemo(() => groupIntoWeeks(reels), [reels])
-  const weekKeys = Object.keys(weeks).sort((a,b) => parseInt(a.replace('Week ','')) - parseInt(b.replace('Week ','')))
-  const [activeWeek, setActiveWeek] = useState(() => weekKeys[weekKeys.length - 1] || 'Week 1')
-  const currentWeek = weekKeys.includes(activeWeek) ? activeWeek : weekKeys[weekKeys.length - 1]
-  const currentReels = useMemo(() =>
-    (weeks[currentWeek]?.reels || []).sort((a,b) => new Date(a.date) - new Date(b.date)),
-    [weeks, currentWeek]
-  )
-  const currentLabel = weeks[currentWeek]?.label || ''
+  // Group by month → week
+  const grouped = useMemo(() => {
+    const months = {}
+    reels.forEach(reel => {
+      if (!reel.date) return
+      const monthKey = getMonthKey(reel.date)
+      const sortKey = getMonthSortKey(reel.date)
+      const weekNum = getWeekNum(reel.date)
+      const weekKey = `Week ${weekNum}`
+      if (!months[monthKey]) months[monthKey] = { sortKey, weeks: {} }
+      if (!months[monthKey].weeks[weekKey]) months[monthKey].weeks[weekKey] = []
+      months[monthKey].weeks[weekKey].push(reel)
+    })
+    return months
+  }, [reels])
 
-  // Build the combined multi-line chart data for this week
-  const chartData = useMemo(() => buildWeekChart(currentReels), [currentReels])
+  const monthKeys = Object.keys(grouped).sort((a,b) => grouped[a].sortKey - grouped[b].sortKey)
+
+  const [activeMonth, setActiveMonth] = useState(() => monthKeys[monthKeys.length - 1] || '')
+  const currentMonth = monthKeys.includes(activeMonth) ? activeMonth : monthKeys[monthKeys.length - 1]
+  const weekKeys = currentMonth ? Object.keys(grouped[currentMonth]?.weeks || {}).sort((a,b) => parseInt(a.replace('Week ','')) - parseInt(b.replace('Week ',''))) : []
+  const [activeWeek, setActiveWeek] = useState(() => weekKeys[0] || 'Week 1')
+
+  // Reset week when month changes
+  const currentWeek = weekKeys.includes(activeWeek) ? activeWeek : weekKeys[0]
+  const currentReels = useMemo(() =>
+    (grouped[currentMonth]?.weeks[currentWeek] || []).sort((a,b) => new Date(a.date) - new Date(b.date)),
+    [grouped, currentMonth, currentWeek]
+  )
+
+  // Week date range label
+  const weekRangeLabel = useMemo(() => {
+    if (!currentReels.length) return ''
+    const { range } = getWeekLabel(currentReels[0].date)
+    const monthShort = new Date(currentReels[0].date).toLocaleString('default', { month: 'long' })
+    return `${monthShort} ${range}`
+  }, [currentReels])
+
+  const chartData = useMemo(() => buildChartData(currentReels), [currentReels])
 
   // All-time totals
   const allTimeTotals = useMemo(() => {
@@ -83,7 +109,7 @@ export default function ModelPage({ model, reels, onBack }) {
     return t
   }, [reels])
 
-  // Weekly totals
+  // Current week totals
   const weekTotals = useMemo(() => {
     const t = {}
     TOTAL_METRICS.forEach(m => { t[m.key] = currentReels.reduce((s,r) => s+(Number(r[m.key])||0), 0) })
@@ -93,7 +119,6 @@ export default function ModelPage({ model, reels, onBack }) {
 
   return (
     <div className="fade-in">
-      {/* Back */}
       <button onClick={onBack} style={{ background:'none', border:'none', color:C.muted, fontSize:11, letterSpacing:2, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6, marginBottom:24, padding:0 }}>
         ← Back
       </button>
@@ -104,10 +129,10 @@ export default function ModelPage({ model, reels, onBack }) {
         <h1 className="serif" style={{ fontSize:38, fontWeight:400, textTransform:'capitalize' }}>{model}</h1>
       </div>
       <p style={{ color:C.muted, fontSize:11, letterSpacing:2, textTransform:'uppercase', marginBottom:24 }}>
-        FYP STATISTICS · {reels.length} reels · {weekKeys.length} weeks
+        FYP STATISTICS · {reels.length} reels · {monthKeys.length} months
       </p>
 
-      {/* All-time summary strip */}
+      {/* All-time summary */}
       <div className="card" style={{ padding:'14px 20px', marginBottom:28, display:'flex', gap:20, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', flexShrink:0 }}>ALL TIME</span>
         {[
@@ -125,11 +150,23 @@ export default function ModelPage({ model, reels, onBack }) {
         ))}
       </div>
 
+      {/* Month tabs */}
+      <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+        <span style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginRight:4, flexShrink:0 }}>MONTH</span>
+        {monthKeys.map(mk => (
+          <button key={mk} onClick={() => { setActiveMonth(mk); setActiveWeek('Week 1') }}
+            className={`chip ${currentMonth === mk ? 'active' : ''}`}>
+            {mk}
+          </button>
+        ))}
+      </div>
+
       {/* Week tabs */}
       <div style={{ display:'flex', gap:8, marginBottom:20, flexWrap:'wrap', alignItems:'center' }}>
         <span style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginRight:4, flexShrink:0 }}>WEEK</span>
         {weekKeys.map(wk => (
-          <button key={wk} onClick={() => setActiveWeek(wk)} className={`chip ${currentWeek === wk ? 'active' : ''}`}>
+          <button key={wk} onClick={() => setActiveWeek(wk)}
+            className={`chip ${currentWeek === wk ? 'active' : ''}`}>
             {wk}
           </button>
         ))}
@@ -138,7 +175,7 @@ export default function ModelPage({ model, reels, onBack }) {
       {/* Week header */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20, padding:'12px 18px', background:C.bgLight, borderRadius:8, border:`1px solid ${C.border}`, flexWrap:'wrap', gap:12 }}>
         <div>
-          <div style={{ fontWeight:600, fontSize:15 }}>{currentWeek} <span style={{ color:C.muted, fontWeight:400 }}>·</span> <span style={{ color:C.muted, fontWeight:400, fontSize:13 }}>{currentLabel}</span></div>
+          <div style={{ fontWeight:600, fontSize:15 }}>{currentWeek} <span style={{ color:C.muted, fontWeight:400 }}>·</span> <span style={{ color:C.muted, fontWeight:400, fontSize:13 }}>{weekRangeLabel}</span></div>
           <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{currentReels.length} reels this week</div>
         </div>
         <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
@@ -152,15 +189,13 @@ export default function ModelPage({ model, reels, onBack }) {
 
       {currentReels.length > 0 ? (
         <>
-          {/* ── COMBINED MULTI-LINE CHART ── */}
+          {/* Combined multi-line chart */}
           <div style={{ background:'#12121e', borderRadius:14, padding:'28px 20px 20px', marginBottom:28, border:'1px solid #2a2a3a' }}>
             <div style={{ marginBottom:4, paddingLeft:8 }}>
-              <div style={{ fontSize:13, color:'#e0ddd8', fontWeight:500, letterSpacing:0.5 }}>
-                {currentWeek} — Views per Reel across Days
+              <div style={{ fontSize:13, color:'#e0ddd8', fontWeight:500 }}>
+                {currentWeek} — {weekRangeLabel} · Views per Reel across Days
               </div>
-              <div style={{ fontSize:11, color:'#666', marginTop:3 }}>
-                Each line = a reel · X = Day · Y = Views
-              </div>
+              <div style={{ fontSize:11, color:'#666', marginTop:3 }}>Each line = a reel · X = Day · Y = Views</div>
             </div>
             <ResponsiveContainer width="100%" height={360}>
               <LineChart data={chartData} margin={{ top:20, right:20, left:0, bottom:0 }}>
@@ -170,9 +205,7 @@ export default function ModelPage({ model, reels, onBack }) {
                 <Tooltip content={<Tip/>}/>
                 <Legend wrapperStyle={{ fontSize:11, color:'#999', paddingTop:16 }}/>
                 {currentReels.map((reel, i) => (
-                  <Line
-                    key={reel.reel_number}
-                    type="monotone"
+                  <Line key={reel.reel_number} type="monotone"
                     dataKey={`Reel #${reel.reel_number}`}
                     stroke={REEL_COLORS[i % REEL_COLORS.length]}
                     strokeWidth={2}
@@ -185,31 +218,29 @@ export default function ModelPage({ model, reels, onBack }) {
             </ResponsiveContainer>
           </div>
 
-          {/* ── PER REEL DETAILS ── */}
+          {/* Per-reel breakdown */}
           <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:14 }}>
-            Reel Breakdown · {currentWeek}
+            Reel Breakdown · {currentWeek} · {weekRangeLabel}
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             {currentReels.map((reel, i) => {
-              const reelColor = REEL_COLORS[i % REEL_COLORS.length]
+              const rc = REEL_COLORS[i % REEL_COLORS.length]
               return (
-                <div key={i} className="card" style={{ padding:'16px 18px', borderLeft:`4px solid ${reelColor}` }}>
+                <div key={i} className="card" style={{ padding:'16px 18px', borderLeft:`4px solid ${rc}` }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12, flexWrap:'wrap', gap:8 }}>
                     <div>
                       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <span style={{ width:10, height:10, borderRadius:'50%', background:reelColor, display:'inline-block' }}/>
+                        <span style={{ width:10, height:10, borderRadius:'50%', background:rc, display:'inline-block' }}/>
                         <span className="serif" style={{ fontSize:17, fontWeight:600 }}>Reel #{reel.reel_number}</span>
                         <span style={{ fontSize:11, color:C.muted }}>· {reel.date}</span>
                       </div>
-                      {/* Day by day views */}
                       <div style={{ display:'flex', gap:8, marginTop:8, flexWrap:'wrap' }}>
                         {VIEW_DAYS.map(d => {
                           const val = Number(reel[d.key]) || 0
                           if (!val) return null
                           return (
                             <span key={d.key} style={{ fontSize:11, padding:'2px 8px', background:C.bgLight, borderRadius:12, border:`1px solid ${C.border}` }}>
-                              <span style={{ color:C.muted }}>{d.label}: </span>
-                              <b>{fmt(val)}</b>
+                              <span style={{ color:C.muted }}>{d.label}: </span><b>{fmt(val)}</b>
                             </span>
                           )
                         })}
@@ -217,13 +248,11 @@ export default function ModelPage({ model, reels, onBack }) {
                     </div>
                     <div style={{ textAlign:'right' }}>
                       <div style={{ fontSize:10, color:C.muted }}>Day 1 → Day 7</div>
-                      <div style={{ fontSize:13, fontWeight:600, color:reelColor }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:rc }}>
                         {fmt(reel.views_day1)} → {reel.views_day7 ? fmt(reel.views_day7) : '—'}
                       </div>
                     </div>
                   </div>
-
-                  {/* Platform stats */}
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(130px, 1fr))', gap:8 }}>
                     {PLATFORMS.map(p => (
                       <div key={p.key} style={{ padding:'8px 10px', background:C.bgLight, borderRadius:6, borderTop:`2px solid ${p.color}` }}>
@@ -235,8 +264,7 @@ export default function ModelPage({ model, reels, onBack }) {
                         <div style={{ fontSize:10 }}>💰 <b>{fmtMoney(reel[`${p.key}_revenue`])}</b> rev</div>
                       </div>
                     ))}
-                    {/* Total */}
-                    <div style={{ padding:'8px 10px', background:'#f7f0f5', borderRadius:6, borderTop:`2px solid ${reelColor}` }}>
+                    <div style={{ padding:'8px 10px', background:'#f7f0f5', borderRadius:6, borderTop:`2px solid ${rc}` }}>
                       <div style={{ fontSize:9, color:C.muted, letterSpacing:1.5, textTransform:'uppercase', marginBottom:6, fontWeight:600 }}>TOTAL</div>
                       <div style={{ fontSize:10, marginBottom:2 }}>🔗 <b>{fmt(reel.total_clicks)}</b> clicks</div>
                       <div style={{ fontSize:10, marginBottom:2 }}>👥 <b>{fmt(reel.total_follows)}</b> follows</div>
