@@ -31,7 +31,15 @@ export default function App() {
   const now = new Date()
   const currentMonthKey = `${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`
 
-  useEffect(() => { if (!getSheetUrl()) setAllData(makeDemo()) }, [])
+  // On startup — load demo if no URL saved, otherwise auto-fetch saved URL
+  useEffect(() => {
+    const savedUrl = getSheetUrl()
+    if (!savedUrl) {
+      setAllData(makeDemo())
+    } else {
+      fetchSheet(savedUrl)
+    }
+  }, []) // eslint-disable-line
 
   const fetchSheet = useCallback(async (url) => {
     if (!url) return
