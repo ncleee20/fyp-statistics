@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { C, MODELS, getColor, fmt, fmtMoney, makeDemo, parseDate } from './lib/constants'
+import { C, MODELS, getColor, fmt, fmtMoney, makeDemo } from './lib/constants'
 import { getUsers, saveUsers, getSession, saveSession, clearSession, getSheetUrl, saveSheetUrl, getExtraModels, saveExtraModels } from './lib/store'
 import LoginScreen from './components/LoginScreen'
 import UserManagement from './components/UserManagement'
@@ -62,7 +62,7 @@ export default function App() {
     return models.map(model => {
       const reels = allData[model] || []
       const currentReels = reels.filter(r => {
-        const d = parseDate(r.date)
+        const s = String(r.date).trim(); const parts = s.split('-'); const d = parts.length===3 && parts[2].length===4 ? new Date(`${parts[2]}-${parts[0]}-${parts[1]}`) : new Date(s)
         return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
       })
       return {
