@@ -1,19 +1,18 @@
 import { useState, useMemo } from 'react'
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, LabelList } from 'recharts'
 import { C, VIEW_DAYS, TOTAL_METRICS, PLATFORMS, fmt, fmtMoney, getColor, parseDate, getMonthKey, getMonthSort, getWeekNum } from '../lib/constants'
 
-const REEL_COLORS = ['#e8a87c','#c084a0','#6db89e','#6aa8d4','#e8c84a','#a084c8','#e87c7c','#84c8a0','#d4a0c8','#84b8d4','#e8a040','#b8d484','#c8a084','#84a0c8','#e8c8a0']
+const REEL_COLORS = ['#e8c8a0','#d4a870','#c08840','#6db89e','#6aa8d4','#a084c8','#e87c7c','#84c8a0','#e8c84a','#84b8d4']
 
 const DarkTip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
   return (
     <div style={{ background:'#1a1814', border:'1px solid #333', borderRadius:8, padding:'10px 14px', boxShadow:'0 4px 20px rgba(0,0,0,.3)' }}>
       <p style={{ color:'#aaa', fontSize:11, marginBottom:8, letterSpacing:1, textTransform:'uppercase' }}>{label}</p>
-      {payload.map((p,i) => (
+      {payload.filter(p => p.value > 0).map((p,i) => (
         <div key={i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
-          <span style={{ width:8, height:8, borderRadius:'50%', background:p.color, display:'inline-block', flexShrink:0 }}/>
-          <span style={{ color:'#ccc', fontSize:11 }}>{p.name}:</span>
-          <span style={{ color:'#fff', fontSize:12, fontWeight:600 }}>{fmt(p.value)}</span>
+          <span style={{ width:8, height:8, borderRadius:'50%', background:p.fill, display:'inline-block', flexShrink:0 }}/>
+          <span style={{ color:'#fff', fontSize:12, fontWeight:600 }}>{p.name}: {fmt(p.value)} views</span>
         </div>
       ))}
     </div>
@@ -22,16 +21,15 @@ const DarkTip = ({ active, payload, label }) => {
 
 const LightTip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
+  const total = payload.reduce((s,p) => s + (p.value||0), 0)
   return (
     <div style={{ background:'#fff', border:`1px solid ${C.border}`, borderRadius:8, padding:'10px 14px', boxShadow:'0 4px 20px rgba(0,0,0,.08)' }}>
       <p style={{ color:C.muted, fontSize:11, marginBottom:6, letterSpacing:1, textTransform:'uppercase' }}>{label}</p>
-      {payload.map((p,i) => (
+      <p style={{ fontSize:12, fontWeight:600, marginBottom:6 }}>Total: {fmt(total)} views</p>
+      {payload.filter(p => p.value > 0).map((p,i) => (
         <div key={i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
-          <span style={{ width:7, height:7, borderRadius:'50%', background:p.color, display:'inline-block' }}/>
-          <span style={{ color:C.muted, fontSize:12 }}>{p.name}:</span>
-          <span style={{ color:C.text, fontSize:13, fontWeight:600 }}>
-            {p.name === 'Revenue' ? fmtMoney(p.value) : fmt(p.value)}
-          </span>
+          <span style={{ width:7, height:7, borderRadius:'50%', background:p.fill, display:'inline-block' }}/>
+          <span style={{ color:C.muted, fontSize:11 }}>{p.name}: {fmt(p.value)}</span>
         </div>
       ))}
     </div>
@@ -44,7 +42,7 @@ export default function ModelPage({ model, reels, onBack }) {
   const currentMonthKey = `${now.toLocaleString('default',{month:'long'})} ${now.getFullYear()}`
   const currentMonthSort = now.getFullYear()*100 + now.getMonth()
 
-  const { pastMonthsChart, currentMonthReels, weekKeys } = useMemo(() => {
+  const { pastMonthsChartData, currentMonthReels, weekKeys } = useMemo(() => {
     const byMonth = {}
     reels.forEach(r => {
       if (!r.date) return
@@ -54,21 +52,34 @@ export default function ModelPage({ model, reels, onBack }) {
       byMonth[mk].reels.push(r)
     })
 
-    const pastMonthsChart = Object.entries(byMonth)
+    // Build daily stacked chart data for past months
+    // Group by date → array of reels per date
+    const pastReels = Object.entries(byMonth)
       .filter(([,v]) => v.sort < currentMonthSort)
-      .sort((a,b) => a[1].sort - b[1].sort)
-      .map(([month, v]) => ({
-        month: month.split(' ')[0].substring(0,3),
-        views:   v.reels.reduce((s,r) => s+(Number(r.views_day1)||0), 0),
-        revenue: v.reels.reduce((s,r) => s+(Number(r.total_revenue)||0), 0),
-        clicks:  v.reels.reduce((s,r) => s+(Number(r.total_clicks)||0), 0),
-      }))
+      .flatMap(([,v]) => v.reels)
+
+    const byDate = {}
+    pastReels.forEach(r => {
+      if (!byDate[r.date]) byDate[r.date] = []
+      byDate[r.date].push(r)
+    })
+
+    // Max reels per day (for dataset slots)
+    const maxSlots = Math.max(0, ...Object.values(byDate).map(a => a.length))
+
+    // Build chart rows — one per date
+    const sortedDates = Object.keys(byDate).sort((a,b) => parseDate(a) - parseDate(b))
+    const pastMonthsChartData = {
+      dates: sortedDates,
+      slots: maxSlots,
+      byDate,
+    }
 
     const currentMonthReels = byMonth[currentMonthKey]?.reels || []
     const weekNums = [...new Set(currentMonthReels.map(r => getWeekNum(r.date)))].sort((a,b)=>a-b)
     const weekKeys = weekNums.map(n => `Week ${n}`)
 
-    return { pastMonthsChart, currentMonthReels, weekKeys }
+    return { pastMonthsChartData, currentMonthReels, weekKeys }
   }, [reels, currentMonthKey, currentMonthSort])
 
   const [activeWeek, setActiveWeek] = useState(() => weekKeys[weekKeys.length-1] || 'Week 1')
@@ -88,20 +99,58 @@ export default function ModelPage({ model, reels, onBack }) {
   const weekLabel = `${now.toLocaleString('default',{month:'long'})} ${startDay}–${endDay}`
 
   const weekTotals = useMemo(() => ({
-    views:   weekReels.reduce((s,r)=>s+(Number(r.views_day1)||0),0),
+    views: weekReels.reduce((s,r) => {
+      const latest = Number(r.views_day7)||Number(r.views_day6)||Number(r.views_day5)||
+                     Number(r.views_day4)||Number(r.views_day3)||Number(r.views_day2)||Number(r.views_day1)||0
+      return s + latest
+    }, 0),
     revenue: weekReels.reduce((s,r)=>s+(Number(r.total_revenue)||0),0),
     clicks:  weekReels.reduce((s,r)=>s+(Number(r.total_clicks)||0),0),
     subs:    weekReels.reduce((s,r)=>s+(Number(r.total_subscription)||0),0),
     follows: weekReels.reduce((s,r)=>s+(Number(r.total_follows)||0),0),
   }), [weekReels])
 
-  const weekChartData = useMemo(() =>
-    VIEW_DAYS.map(d => {
-      const point = { day: d.label }
-      weekReels.forEach(r => { point[`#${r.reel_number}`] = Number(r[d.key])||null })
-      return point
-    }), [weekReels]
-  )
+  // Build recharts-compatible stacked bar data for past months
+  const monthlyChartRows = useMemo(() => {
+    const { dates, slots, byDate } = pastMonthsChartData
+    return dates.map(date => {
+      const row = { date }
+      const reelsOnDay = byDate[date] || []
+      // Format date label: MM-DD-YYYY → "Mar 19"
+      const d = parseDate(date)
+      row.label = `${d.toLocaleString('default',{month:'short'})} ${d.getDate()}`
+      // Daily total
+      row._total = reelsOnDay.reduce((s,r) => s+(Number(r.views_day1)||0), 0)
+      // Each slot
+      for (let i = 0; i < slots; i++) {
+        const reel = reelsOnDay[i]
+        row[`slot${i}`] = reel ? (Number(reel.views_day1)||0) : 0
+        row[`reel${i}`] = reel ? reel.reel_number : null
+      }
+      return row
+    })
+  }, [pastMonthsChartData])
+
+  const maxSlots = pastMonthsChartData.slots
+
+  // Weekly stacked chart (7-day horizontal)
+  const weeklyChartData = useMemo(() => {
+    return weekReels.map((reel, i) => {
+      const gains = VIEW_DAYS.map((d, di) => {
+        const val = Number(reel[d.key]) || 0
+        if (val === 0) return 0
+        const prev = di === 0 ? 0 : (Number(reel[VIEW_DAYS[di-1].key]) || 0)
+        return val - prev
+      })
+      return {
+        reel: `#${reel.reel_number}`,
+        reelNum: reel.reel_number,
+        date: reel.date,
+        gains,
+        cumulative: VIEW_DAYS.map(d => Number(reel[d.key])||0),
+      }
+    })
+  }, [weekReels])
 
   return (
     <div className="fade-in">
@@ -117,28 +166,49 @@ export default function ModelPage({ model, reels, onBack }) {
         FYP STATISTICS · {reels.length} total reels
       </p>
 
-      {/* PAST MONTHS BAR CHART */}
-      {pastMonthsChart.length > 0 && (
+      {/* ── PAST MONTHS STACKED BAR CHART ── */}
+      {monthlyChartRows.length > 0 && (
         <div style={{ marginBottom:40 }}>
           <div style={{ fontSize:11, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:16 }}>Monthly Overview — Past Months</div>
-          <div className="card" style={{ padding:'22px 16px 16px' }}>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={pastMonthsChart} margin={{ top:10, right:10, left:0, bottom:0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                <XAxis dataKey="month" tick={{ fill:C.muted, fontSize:11 }} axisLine={false} tickLine={false}/>
+          <div className="card" style={{ padding:'24px 16px 16px' }}>
+            <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:4, paddingLeft:8 }}>Reels Per Day — View Count Breakdown</div>
+            <div style={{ fontSize:11, color:C.muted, paddingLeft:8, marginBottom:20 }}>Each segment = one reel · Height = Day 1 views · Number on top = daily total</div>
+            <ResponsiveContainer width="100%" height={380}>
+              <BarChart data={monthlyChartRows} margin={{ top:24, right:10, left:0, bottom:40 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
+                <XAxis dataKey="label" tick={{ fill:C.muted, fontSize:9 }} axisLine={false} tickLine={false} angle={-45} textAnchor="end" interval={0}/>
                 <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} width={44} tickFormatter={fmt}/>
                 <Tooltip content={<LightTip/>}/>
-                <Legend wrapperStyle={{ fontSize:11, paddingTop:12 }}/>
-                <Bar dataKey="views"   name="Views"   fill={color}   radius={[4,4,0,0]} opacity={0.9}/>
-                <Bar dataKey="clicks"  name="Clicks"  fill="#6aa8d4" radius={[4,4,0,0]} opacity={0.9}/>
-                <Bar dataKey="revenue" name="Revenue" fill="#5a9e7a" radius={[4,4,0,0]} opacity={0.9}/>
+                {Array.from({ length: maxSlots }, (_, i) => (
+                  <Bar key={i} dataKey={`slot${i}`} name={`Slot ${i+1}`} stackId="a"
+                    fill={REEL_COLORS[i % REEL_COLORS.length]}
+                    radius={i === maxSlots-1 ? [4,4,0,0] : [0,0,0,0]}>
+                    <LabelList dataKey={`slot${i}`} position="inside" style={{ fill:'#1a1814', fontSize:8, fontFamily:"'Jost',sans-serif" }}
+                      formatter={(val, entry) => val > 25 ? val : ''}/>
+                  </Bar>
+                ))}
+                {/* Total on top */}
+                <Bar dataKey="_total" stackId="b" fill="transparent" radius={0}>
+                  <LabelList dataKey="_total" position="top" style={{ fill:C.text, fontSize:9, fontWeight:600, fontFamily:"'Jost',sans-serif" }}
+                    formatter={v => v > 0 ? v : ''}/>
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
+            {/* Slot legend */}
+            <div style={{ display:'flex', gap:12, flexWrap:'wrap', paddingLeft:8, marginTop:8 }}>
+              <span style={{ fontSize:10, color:C.muted, letterSpacing:1.5, textTransform:'uppercase', alignSelf:'center' }}>Reel slot:</span>
+              {Array.from({ length: Math.min(maxSlots, 5) }, (_,i) => (
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:C.muted }}>
+                  <span style={{ width:11, height:11, borderRadius:2, background:REEL_COLORS[i], display:'inline-block' }}/>
+                  Slot {i+1}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* CURRENT MONTH WEEKLY */}
+      {/* ── CURRENT MONTH WEEKLY ── */}
       <div style={{ fontSize:11, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:16 }}>
         {currentMonthKey} — Weekly Breakdown
       </div>
@@ -160,34 +230,33 @@ export default function ModelPage({ model, reels, onBack }) {
               <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{weekReels.length} reels</div>
             </div>
             <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
-              <span style={{ fontSize:11 }}>👁 <b>{fmt(weekTotals.views)}</b></span>
-              <span style={{ fontSize:11 }}>💰 <b>{fmtMoney(weekTotals.revenue)}</b></span>
-              <span style={{ fontSize:11 }}>🔗 <b>{fmt(weekTotals.clicks)}</b></span>
-              <span style={{ fontSize:11 }}>⭐ <b>{fmt(weekTotals.subs)}</b></span>
-              <span style={{ fontSize:11 }}>👥 <b>{fmt(weekTotals.follows)}</b></span>
+              <span style={{ fontSize:11 }}>Views: <b>{fmt(weekTotals.views)}</b></span>
+              <span style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(weekTotals.revenue)}</b></span>
+              <span style={{ fontSize:11 }}>Clicks: <b>{fmt(weekTotals.clicks)}</b></span>
+              <span style={{ fontSize:11 }}>Subscriptions: <b>{fmt(weekTotals.subs)}</b></span>
+              <span style={{ fontSize:11 }}>Follows: <b>{fmt(weekTotals.follows)}</b></span>
             </div>
           </div>
 
-          {/* Dark multi-line chart */}
-          <div style={{ background:'#12121e', borderRadius:14, padding:'28px 20px 20px', marginBottom:28, border:'1px solid #2a2a3a' }}>
-            <div style={{ fontSize:13, color:'#e0ddd8', fontWeight:500, marginBottom:3, paddingLeft:8 }}>
-              {currentWeek} — {weekLabel} · Views per Reel
+          {/* Weekly stacked horizontal chart */}
+          <div className="card" style={{ padding:'24px 16px 16px', marginBottom:28 }}>
+            <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:4, paddingLeft:8 }}>
+              {currentWeek} — {weekLabel} · View Growth Per Reel
             </div>
-            <div style={{ fontSize:11, color:'#666', paddingLeft:8, marginBottom:16 }}>Each line = a reel · X = Day · Y = Views</div>
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={weekChartData} margin={{ top:10, right:20, left:0, bottom:0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                <XAxis dataKey="day" tick={{ fill:'#666', fontSize:11 }} axisLine={false} tickLine={false}/>
-                <YAxis tick={{ fill:'#666', fontSize:11 }} axisLine={false} tickLine={false} width={44} tickFormatter={fmt}/>
+            <div style={{ fontSize:11, color:C.muted, paddingLeft:8, marginBottom:16 }}>Each segment = views gained that day · Grey = not yet filled</div>
+            <ResponsiveContainer width="100%" height={Math.max(200, weekReels.length * 52)}>
+              <BarChart data={weeklyChartData} layout="vertical" margin={{ top:0, right:60, left:40, bottom:0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
+                <XAxis type="number" tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={fmt}/>
+                <YAxis type="category" dataKey="reel" tick={{ fill:C.muted, fontSize:11 }} axisLine={false} tickLine={false} width={40}/>
                 <Tooltip content={<DarkTip/>}/>
-                <Legend wrapperStyle={{ fontSize:11, color:'#999', paddingTop:16 }}/>
-                {weekReels.map((r,i) => (
-                  <Line key={r.reel_number} type="monotone" dataKey={`#${r.reel_number}`}
-                    stroke={REEL_COLORS[i%REEL_COLORS.length]} strokeWidth={2}
-                    dot={{ r:5, fill:REEL_COLORS[i%REEL_COLORS.length], strokeWidth:2, stroke:'#12121e' }}
-                    activeDot={{ r:7 }} connectNulls={false}/>
+                {VIEW_DAYS.map((d, di) => (
+                  <Bar key={d.key} dataKey={`gains[${di}]`} name={d.label} stackId="a"
+                    fill={di < 3 ? REEL_COLORS[di] : '#e2ddd6'}
+                    radius={di === 6 ? [0,4,4,0] : [0,0,0,0]}>
+                  </Bar>
                 ))}
-              </LineChart>
+              </BarChart>
             </ResponsiveContainer>
           </div>
 
@@ -197,7 +266,7 @@ export default function ModelPage({ model, reels, onBack }) {
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
             {weekReels.map((reel, i) => {
-              const rc = REEL_COLORS[i%REEL_COLORS.length]
+              const rc = REEL_COLORS[i % REEL_COLORS.length]
               const isOpen = expandedReel === reel.reel_number
               return (
                 <div key={reel.reel_number} className="card" style={{ overflow:'hidden', borderLeft:`4px solid ${rc}` }}>
@@ -209,10 +278,10 @@ export default function ModelPage({ model, reels, onBack }) {
                       <span style={{ fontSize:11, color:C.muted }}>· {reel.date}</span>
                     </div>
                     <div style={{ display:'flex', gap:14, alignItems:'center', flexWrap:'wrap' }}>
-                      <span style={{ fontSize:11 }}>👁 <b>{fmt(reel.views_day1)}</b> <span style={{ color:C.muted }}>day 1</span></span>
-                      {reel.views_day7 > 0 && <span style={{ fontSize:11 }}>👁 <b>{fmt(reel.views_day7)}</b> <span style={{ color:C.muted }}>day 7</span></span>}
-                      <span style={{ fontSize:11 }}>💰 <b>{fmtMoney(reel.total_revenue)}</b></span>
-                      <span style={{ fontSize:11 }}>🔗 <b>{fmt(reel.total_clicks)}</b></span>
+                      <span style={{ fontSize:11 }}>Day 1: <b>{fmt(reel.views_day1)}</b></span>
+                      {reel.views_day7 > 0 && <span style={{ fontSize:11 }}>Day 7: <b>{fmt(reel.views_day7)}</b></span>}
+                      <span style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(reel.total_revenue)}</b></span>
+                      <span style={{ fontSize:11 }}>Clicks: <b>{fmt(reel.total_clicks)}</b></span>
                       <span style={{ fontSize:14, color:C.muted, marginLeft:4 }}>{isOpen ? '▲' : '▼'}</span>
                     </div>
                   </div>
@@ -233,20 +302,20 @@ export default function ModelPage({ model, reels, onBack }) {
                         {PLATFORMS.map(p => (
                           <div key={p.key} style={{ padding:'10px 12px', background:'#fff', borderRadius:8, borderTop:`2px solid ${p.color}` }}>
                             <div style={{ fontSize:9, color:C.muted, letterSpacing:1.5, textTransform:'uppercase', marginBottom:8, fontWeight:600 }}>{p.label}</div>
-                            <div style={{ fontSize:11, marginBottom:3 }}>🔗 <b>{fmt(reel[`${p.key}_clicks`])}</b></div>
-                            <div style={{ fontSize:11, marginBottom:3 }}>👥 <b>{fmt(reel[`${p.key}_follows`])}</b></div>
-                            <div style={{ fontSize:11, marginBottom:3 }}>⭐ <b>{fmt(reel[`${p.key}_subscription`])}</b></div>
-                            <div style={{ fontSize:11, marginBottom:3 }}>💸 <b>{fmtMoney(reel[`${p.key}_tips`])}</b></div>
-                            <div style={{ fontSize:11 }}>💰 <b>{fmtMoney(reel[`${p.key}_revenue`])}</b></div>
+                            <div style={{ fontSize:11, marginBottom:3 }}>Clicks: <b>{fmt(reel[`${p.key}_clicks`])}</b></div>
+                            <div style={{ fontSize:11, marginBottom:3 }}>Follows: <b>{fmt(reel[`${p.key}_follows`])}</b></div>
+                            <div style={{ fontSize:11, marginBottom:3 }}>Subs: <b>{fmt(reel[`${p.key}_subscription`])}</b></div>
+                            <div style={{ fontSize:11, marginBottom:3 }}>Tips: <b>{fmtMoney(reel[`${p.key}_tips`])}</b></div>
+                            <div style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(reel[`${p.key}_revenue`])}</b></div>
                           </div>
                         ))}
                         <div style={{ padding:'10px 12px', background:'#fff', borderRadius:8, borderTop:`2px solid ${rc}` }}>
                           <div style={{ fontSize:9, color:C.muted, letterSpacing:1.5, textTransform:'uppercase', marginBottom:8, fontWeight:600 }}>TOTAL</div>
-                          <div style={{ fontSize:11, marginBottom:3 }}>🔗 <b>{fmt(reel.total_clicks)}</b></div>
-                          <div style={{ fontSize:11, marginBottom:3 }}>👥 <b>{fmt(reel.total_follows)}</b></div>
-                          <div style={{ fontSize:11, marginBottom:3 }}>⭐ <b>{fmt(reel.total_subscription)}</b></div>
-                          <div style={{ fontSize:11, marginBottom:3 }}>💸 <b>{fmtMoney(reel.total_tips)}</b></div>
-                          <div style={{ fontSize:11 }}>💰 <b>{fmtMoney(reel.total_revenue)}</b></div>
+                          <div style={{ fontSize:11, marginBottom:3 }}>Clicks: <b>{fmt(reel.total_clicks)}</b></div>
+                          <div style={{ fontSize:11, marginBottom:3 }}>Follows: <b>{fmt(reel.total_follows)}</b></div>
+                          <div style={{ fontSize:11, marginBottom:3 }}>Subs: <b>{fmt(reel.total_subscription)}</b></div>
+                          <div style={{ fontSize:11, marginBottom:3 }}>Tips: <b>{fmtMoney(reel.total_tips)}</b></div>
+                          <div style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(reel.total_revenue)}</b></div>
                         </div>
                       </div>
                     </div>
