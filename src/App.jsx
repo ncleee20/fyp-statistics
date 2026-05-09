@@ -75,7 +75,12 @@ export default function App() {
       })
       return {
         model,
-        views:   currentReels.reduce((s,r) => s+(Number(r.views_day1)||0), 0),
+        views: currentReels.reduce((s,r) => {
+          const latest = Number(r.views_day7)||Number(r.views_day6)||Number(r.views_day5)||
+                         Number(r.views_day4)||Number(r.views_day3)||Number(r.views_day2)||
+                         Number(r.views_day1)||0
+          return s + latest
+        }, 0),
         revenue: currentReels.reduce((s,r) => s+(Number(r.total_revenue)||0), 0),
         clicks:  currentReels.reduce((s,r) => s+(Number(r.total_clicks)||0), 0),
         subs:    currentReels.reduce((s,r) => s+(Number(r.total_subscription)||0), 0),
