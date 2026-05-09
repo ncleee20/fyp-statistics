@@ -6,15 +6,27 @@ const REEL_COLORS = ['#e8c8a0','#d4a870','#c08840','#6db89e','#6aa8d4','#a084c8'
 
 const DarkTip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
+  // Calculate cumulative totals per day
+  let cumulative = 0
+  const rows = payload.filter(p => p.value > 0 && !p.fill.includes('e2dd')).map(p => {
+    cumulative += p.value
+    return { name: p.name, fill: p.fill, total: cumulative }
+  })
+  const finalTotal = rows[rows.length - 1]?.total || 0
   return (
     <div style={{ background:'#1a1814', border:'1px solid #333', borderRadius:8, padding:'10px 14px', boxShadow:'0 4px 20px rgba(0,0,0,.3)' }}>
       <p style={{ color:'#aaa', fontSize:11, marginBottom:8, letterSpacing:1, textTransform:'uppercase' }}>{label}</p>
-      {payload.filter(p => p.value > 0).map((p,i) => (
+      {rows.map((r,i) => (
         <div key={i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
-          <span style={{ width:8, height:8, borderRadius:'50%', background:p.fill, display:'inline-block', flexShrink:0 }}/>
-          <span style={{ color:'#fff', fontSize:12, fontWeight:600 }}>{p.name}: {fmt(p.value)} views</span>
+          <span style={{ width:8, height:8, borderRadius:'50%', background:r.fill, display:'inline-block', flexShrink:0 }}/>
+          <span style={{ color:'#fff', fontSize:12, fontWeight:600 }}>{r.name}: {fmt(r.total)} views total</span>
         </div>
       ))}
+      {rows.length > 0 && (
+        <div style={{ marginTop:8, paddingTop:8, borderTop:'1px solid #333', fontSize:12, color:'#aaa' }}>
+          Latest total: <b style={{ color:'#fff' }}>{fmt(finalTotal)}</b> views
+        </div>
+      )}
     </div>
   )
 }
@@ -52,28 +64,20 @@ export default function ModelPage({ model, reels, onBack }) {
       byMonth[mk].reels.push(r)
     })
 
-    // Build daily stacked chart data for past months
-    // Group by date → array of reels per date
-    const pastReels = Object.entries(byMonth)
+    // Build per-month chart data separately
+    const pastMonthsChartData = Object.entries(byMonth)
       .filter(([,v]) => v.sort < currentMonthSort)
-      .flatMap(([,v]) => v.reels)
-
-    const byDate = {}
-    pastReels.forEach(r => {
-      if (!byDate[r.date]) byDate[r.date] = []
-      byDate[r.date].push(r)
-    })
-
-    // Max reels per day (for dataset slots)
-    const maxSlots = Math.max(0, ...Object.values(byDate).map(a => a.length))
-
-    // Build chart rows — one per date
-    const sortedDates = Object.keys(byDate).sort((a,b) => parseDate(a) - parseDate(b))
-    const pastMonthsChartData = {
-      dates: sortedDates,
-      slots: maxSlots,
-      byDate,
-    }
+      .sort((a,b) => a[1].sort - b[1].sort)
+      .map(([monthKey, v]) => {
+        const byDate = {}
+        v.reels.forEach(r => {
+          if (!byDate[r.date]) byDate[r.date] = []
+          byDate[r.date].push(r)
+        })
+        const maxSlots = Math.max(0, ...Object.values(byDate).map(a => a.length))
+        const sortedDates = Object.keys(byDate).sort((a2,b2) => parseDate(a2) - parseDate(b2))
+        return { monthKey, dates: sortedDates, slots: maxSlots, byDate }
+      })
 
     const currentMonthReels = byMonth[currentMonthKey]?.reels || []
     const weekNums = [...new Set(currentMonthReels.map(r => getWeekNum(r.date)))].sort((a,b)=>a-b)
@@ -110,28 +114,25 @@ export default function ModelPage({ model, reels, onBack }) {
     follows: weekReels.reduce((s,r)=>s+(Number(r.total_follows)||0),0),
   }), [weekReels])
 
-  // Build recharts-compatible stacked bar data for past months
-  const monthlyChartRows = useMemo(() => {
-    const { dates, slots, byDate } = pastMonthsChartData
-    return dates.map(date => {
-      const row = { date }
-      const reelsOnDay = byDate[date] || []
-      // Format date label: MM-DD-YYYY → "Mar 19"
-      const d = parseDate(date)
-      row.label = `${d.toLocaleString('default',{month:'short'})} ${d.getDate()}`
-      // Daily total
-      row._total = reelsOnDay.reduce((s,r) => s+(Number(r.views_day1)||0), 0)
-      // Each slot
-      for (let i = 0; i < slots; i++) {
-        const reel = reelsOnDay[i]
-        row[`slot${i}`] = reel ? (Number(reel.views_day1)||0) : 0
-        row[`reel${i}`] = reel ? reel.reel_number : null
-      }
-      return row
+  // Build per-month chart rows
+  const perMonthCharts = useMemo(() => {
+    return pastMonthsChartData.map(({ monthKey, dates, slots, byDate }) => {
+      const rows = dates.map(date => {
+        const row = { date }
+        const reelsOnDay = byDate[date] || []
+        const d = parseDate(date)
+        row.label = `${d.toLocaleString('default',{month:'short'})} ${d.getDate()}`
+        row._total = reelsOnDay.reduce((s,r) => s+(Number(r.views_day1)||0), 0)
+        for (let i = 0; i < slots; i++) {
+          const reel = reelsOnDay[i]
+          row[`slot${i}`] = reel ? (Number(reel.views_day1)||0) : 0
+          row[`reel${i}`] = reel ? reel.reel_number : null
+        }
+        return row
+      })
+      return { monthKey, rows, slots }
     })
   }, [pastMonthsChartData])
-
-  const maxSlots = pastMonthsChartData.slots
 
   // Weekly stacked chart (7-day horizontal)
   const weeklyChartData = useMemo(() => {
@@ -166,45 +167,50 @@ export default function ModelPage({ model, reels, onBack }) {
         FYP STATISTICS · {reels.length} total reels
       </p>
 
-      {/* ── PAST MONTHS STACKED BAR CHART ── */}
-      {monthlyChartRows.length > 0 && (
+      {/* ── PAST MONTHS — ONE CHART PER MONTH ── */}
+      {perMonthCharts.length > 0 && (
         <div style={{ marginBottom:40 }}>
-          <div style={{ fontSize:11, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:16 }}>Monthly Overview — Past Months</div>
-          <div className="card" style={{ padding:'24px 16px 16px' }}>
-            <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:4, paddingLeft:8 }}>Reels Per Day — View Count Breakdown</div>
-            <div style={{ fontSize:11, color:C.muted, paddingLeft:8, marginBottom:20 }}>Each segment = one reel · Height = Day 1 views · Number on top = daily total</div>
-            <ResponsiveContainer width="100%" height={380}>
-              <BarChart data={monthlyChartRows} margin={{ top:24, right:10, left:0, bottom:40 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
-                <XAxis dataKey="label" tick={{ fill:C.muted, fontSize:9 }} axisLine={false} tickLine={false} angle={-45} textAnchor="end" interval={0}/>
-                <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} width={44} tickFormatter={fmt}/>
-                <Tooltip content={<LightTip/>}/>
-                {Array.from({ length: maxSlots }, (_, i) => (
-                  <Bar key={i} dataKey={`slot${i}`} name={`Slot ${i+1}`} stackId="a"
-                    fill={REEL_COLORS[i % REEL_COLORS.length]}
-                    radius={i === maxSlots-1 ? [4,4,0,0] : [0,0,0,0]}>
-                    <LabelList dataKey={`slot${i}`} position="inside" style={{ fill:'#1a1814', fontSize:8, fontFamily:"'Jost',sans-serif" }}
-                      formatter={(val, entry) => val > 25 ? val : ''}/>
-                  </Bar>
-                ))}
-                {/* Total on top */}
-                <Bar dataKey="_total" stackId="b" fill="transparent" radius={0}>
-                  <LabelList dataKey="_total" position="top" style={{ fill:C.text, fontSize:9, fontWeight:600, fontFamily:"'Jost',sans-serif" }}
-                    formatter={v => v > 0 ? v : ''}/>
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            {/* Slot legend */}
-            <div style={{ display:'flex', gap:12, flexWrap:'wrap', paddingLeft:8, marginTop:8 }}>
-              <span style={{ fontSize:10, color:C.muted, letterSpacing:1.5, textTransform:'uppercase', alignSelf:'center' }}>Reel slot:</span>
-              {Array.from({ length: Math.min(maxSlots, 5) }, (_,i) => (
-                <div key={i} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:C.muted }}>
-                  <span style={{ width:11, height:11, borderRadius:2, background:REEL_COLORS[i], display:'inline-block' }}/>
-                  Slot {i+1}
+          <div style={{ fontSize:11, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:20 }}>Monthly Overview — Past Months</div>
+          {perMonthCharts.map(({ monthKey, rows, slots }) => (
+            <div key={monthKey} style={{ marginBottom:32 }}>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:12, paddingBottom:10, borderBottom:`1px solid ${C.border}` }}>
+                {monthKey}
+              </div>
+              <div className="card" style={{ padding:'24px 16px 16px' }}>
+                <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:4, paddingLeft:8 }}>Reels Per Day — View Count Breakdown</div>
+                <div style={{ fontSize:11, color:C.muted, paddingLeft:8, marginBottom:20 }}>Each segment = one reel · Height = Day 1 views · Number on top = daily total</div>
+                <ResponsiveContainer width="100%" height={360}>
+                  <BarChart data={rows} margin={{ top:24, right:10, left:0, bottom:40 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
+                    <XAxis dataKey="label" tick={{ fill:C.muted, fontSize:9 }} axisLine={false} tickLine={false} angle={-45} textAnchor="end" interval={0}/>
+                    <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} width={44} tickFormatter={fmt}/>
+                    <Tooltip content={<LightTip/>}/>
+                    {Array.from({ length: slots }, (_, i) => (
+                      <Bar key={i} dataKey={`slot${i}`} name={`Slot ${i+1}`} stackId="a"
+                        fill={REEL_COLORS[i % REEL_COLORS.length]}
+                        radius={i === slots-1 ? [4,4,0,0] : [0,0,0,0]}>
+                        <LabelList dataKey={`slot${i}`} position="inside" style={{ fill:'#1a1814', fontSize:8, fontFamily:"'Jost',sans-serif" }}
+                          formatter={(val) => val > 25 ? val : ''}/>
+                      </Bar>
+                    ))}
+                    <Bar dataKey="_total" stackId="b" fill="transparent" radius={0}>
+                      <LabelList dataKey="_total" position="top" style={{ fill:C.text, fontSize:9, fontWeight:600, fontFamily:"'Jost',sans-serif" }}
+                        formatter={v => v > 0 ? v : ''}/>
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div style={{ display:'flex', gap:12, flexWrap:'wrap', paddingLeft:8, marginTop:8 }}>
+                  <span style={{ fontSize:10, color:C.muted, letterSpacing:1.5, textTransform:'uppercase', alignSelf:'center' }}>Reel slot:</span>
+                  {Array.from({ length: Math.min(slots, 5) }, (_,i) => (
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:C.muted }}>
+                      <span style={{ width:11, height:11, borderRadius:2, background:REEL_COLORS[i], display:'inline-block' }}/>
+                      Slot {i+1}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
+          ))}
         </div>
       )}
 
@@ -254,6 +260,25 @@ export default function ModelPage({ model, reels, onBack }) {
                   <Bar key={d.key} dataKey={`gains[${di}]`} name={d.label} stackId="a"
                     fill={di < 3 ? REEL_COLORS[di] : '#e2ddd6'}
                     radius={di === 6 ? [0,4,4,0] : [0,0,0,0]}>
+                    {di === 6 && (
+                      <LabelList
+                        dataKey={`gains[${di}]`}
+                        position="right"
+                        content={(props) => {
+                          const { x, y, width, height, index } = props
+                          const reel = weeklyChartData[index]
+                          if (!reel) return null
+                          const total = reel.cumulative[reel.cumulative.findLastIndex(v => v > 0)]
+                          if (!total) return null
+                          return (
+                            <text x={x + width + 6} y={y + height / 2 + 4}
+                              fill="#1a1814" fontSize={11} fontFamily="'Jost',sans-serif" fontWeight={600}>
+                              {fmt(total)}
+                            </text>
+                          )
+                        }}
+                      />
+                    )}
                   </Bar>
                 ))}
               </BarChart>
