@@ -6,27 +6,15 @@ const REEL_COLORS = ['#e8c8a0','#d4a870','#c08840','#6db89e','#6aa8d4','#a084c8'
 
 const DarkTip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
-  // Calculate cumulative totals per day
-  let cumulative = 0
-  const rows = payload.filter(p => p.value > 0 && !p.fill.includes('e2dd')).map(p => {
-    cumulative += p.value
-    return { name: p.name, fill: p.fill, total: cumulative }
-  })
-  const finalTotal = rows[rows.length - 1]?.total || 0
   return (
     <div style={{ background:'#1a1814', border:'1px solid #333', borderRadius:8, padding:'10px 14px', boxShadow:'0 4px 20px rgba(0,0,0,.3)' }}>
       <p style={{ color:'#aaa', fontSize:11, marginBottom:8, letterSpacing:1, textTransform:'uppercase' }}>{label}</p>
-      {rows.map((r,i) => (
+      {payload.filter(p => p.value > 0).map((p,i) => (
         <div key={i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
-          <span style={{ width:8, height:8, borderRadius:'50%', background:r.fill, display:'inline-block', flexShrink:0 }}/>
-          <span style={{ color:'#fff', fontSize:12, fontWeight:600 }}>{r.name}: {fmt(r.total)} views total</span>
+          <span style={{ width:8, height:8, borderRadius:'50%', background:p.fill, display:'inline-block', flexShrink:0 }}/>
+          <span style={{ color:'#fff', fontSize:12, fontWeight:600 }}>{p.name}: {fmt(p.value)} views</span>
         </div>
       ))}
-      {rows.length > 0 && (
-        <div style={{ marginTop:8, paddingTop:8, borderTop:'1px solid #333', fontSize:12, color:'#aaa' }}>
-          Latest total: <b style={{ color:'#fff' }}>{fmt(finalTotal)}</b> views
-        </div>
-      )}
     </div>
   )
 }
