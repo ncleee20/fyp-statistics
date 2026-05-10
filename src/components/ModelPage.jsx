@@ -273,69 +273,87 @@ export default function ModelPage({ model, reels, onBack }) {
             </ResponsiveContainer>
           </div>
 
-          {/* Collapsed reels */}
-          <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:12 }}>
-            Reels · {currentWeek} · Click to expand
+          {/* Date-grouped reel breakdown */}
+          <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:16 }}>
+            Daily Breakdown · {currentWeek}
           </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {weekReels.map((reel, i) => {
-              const rc = REEL_COLORS[i % REEL_COLORS.length]
-              const isOpen = expandedReel === reel.reel_number
-              return (
-                <div key={reel.reel_number} className="card" style={{ overflow:'hidden', borderLeft:`4px solid ${rc}` }}>
-                  <div onClick={() => setExpandedReel(isOpen ? null : reel.reel_number)}
-                    style={{ padding:'12px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', gap:12, flexWrap:'wrap' }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <span style={{ width:9, height:9, borderRadius:'50%', background:rc, display:'inline-block' }}/>
-                      <span className="serif" style={{ fontSize:16, fontWeight:600 }}>Reel #{reel.reel_number}</span>
-                      <span style={{ fontSize:11, color:C.muted }}>· {reel.date}</span>
+          <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+            {(() => {
+              // Group reels by date
+              const byDate = {}
+              weekReels.forEach((reel, i) => {
+                if (!byDate[reel.date]) byDate[reel.date] = []
+                byDate[reel.date].push({ reel, idx: i })
+              })
+              return Object.entries(byDate).map(([date, items]) => {
+                // Use engagement from first reel of the day (it represents the whole day)
+                const dayReel = items[0].reel
+                const d = parseDate(date)
+                const dateLabel = d.toLocaleString('default', { month:'long', day:'numeric', year:'numeric' })
+                return (
+                  <div key={date}>
+                    {/* Date header */}
+                    <div style={{ fontSize:12, fontWeight:600, color:C.text, marginBottom:10, paddingBottom:8, borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase' }}>{dateLabel}</span>
+                      <span style={{ fontSize:10, color:C.muted }}>· {items.length} reel{items.length>1?'s':''}</span>
                     </div>
-                    <div style={{ display:'flex', gap:14, alignItems:'center', flexWrap:'wrap' }}>
-                      <span style={{ fontSize:11 }}>Day 1: <b>{fmt(reel.views_day1)}</b></span>
-                      {reel.views_day7 > 0 && <span style={{ fontSize:11 }}>Day 7: <b>{fmt(reel.views_day7)}</b></span>}
-                      <span style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(reel.total_revenue)}</b></span>
-                      <span style={{ fontSize:11 }}>Clicks: <b>{fmt(reel.total_clicks)}</b></span>
-                      <span style={{ fontSize:14, color:C.muted, marginLeft:4 }}>{isOpen ? '▲' : '▼'}</span>
+
+                    {/* Reels for this date */}
+                    <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:14 }}>
+                      {items.map(({ reel, idx }) => {
+                        const rc = REEL_COLORS[idx % REEL_COLORS.length]
+                        return (
+                          <div key={reel.reel_number} className="card" style={{ padding:'12px 18px', borderLeft:`4px solid ${rc}`, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                              <span style={{ width:8, height:8, borderRadius:'50%', background:rc, display:'inline-block' }}/>
+                              <span className="serif" style={{ fontSize:15, fontWeight:600 }}>Reel #{reel.reel_number}</span>
+                            </div>
+                            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                              {VIEW_DAYS.map(d => {
+                                const val = Number(reel[d.key])||0
+                                if (!val) return null
+                                return (
+                                  <span key={d.key} style={{ fontSize:11, padding:'2px 8px', background:C.bgLight, borderRadius:20, border:`1px solid ${C.border}` }}>
+                                    <span style={{ color:C.muted }}>{d.label}: </span><b>{fmt(val)}</b>
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
-                  </div>
-                  {isOpen && (
-                    <div style={{ borderTop:`1px solid ${C.border}`, padding:'16px 18px', background:C.bgLight }} className="fade-in">
-                      <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
-                        {VIEW_DAYS.map(d => {
-                          const val = Number(reel[d.key])||0
-                          if (!val) return null
-                          return (
-                            <span key={d.key} style={{ fontSize:11, padding:'3px 10px', background:'#fff', borderRadius:20, border:`1px solid ${C.border}` }}>
-                              <span style={{ color:C.muted }}>{d.label}: </span><b>{fmt(val)}</b>
-                            </span>
-                          )
-                        })}
+
+                    {/* Daily engagement box — shared across all reels of this day */}
+                    <div style={{ background:C.bgLight, border:`1px solid ${C.border}`, borderRadius:10, padding:'14px 18px' }}>
+                      <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:12 }}>
+                        Daily Engagement — {dateLabel}
                       </div>
-                      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))', gap:8 }}>
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))', gap:10 }}>
                         {PLATFORMS.map(p => (
                           <div key={p.key} style={{ padding:'10px 12px', background:'#fff', borderRadius:8, borderTop:`2px solid ${p.color}` }}>
                             <div style={{ fontSize:9, color:C.muted, letterSpacing:1.5, textTransform:'uppercase', marginBottom:8, fontWeight:600 }}>{p.label}</div>
-                            <div style={{ fontSize:11, marginBottom:3 }}>Clicks: <b>{fmt(reel[`${p.key}_clicks`])}</b></div>
-                            <div style={{ fontSize:11, marginBottom:3 }}>Follows: <b>{fmt(reel[`${p.key}_follows`])}</b></div>
-                            <div style={{ fontSize:11, marginBottom:3 }}>Subs: <b>{fmt(reel[`${p.key}_subscription`])}</b></div>
-                            <div style={{ fontSize:11, marginBottom:3 }}>Tips: <b>{fmtMoney(reel[`${p.key}_tips`])}</b></div>
-                            <div style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(reel[`${p.key}_revenue`])}</b></div>
+                            <div style={{ fontSize:11, marginBottom:3 }}>Clicks: <b>{fmt(dayReel[`${p.key}_clicks`])}</b></div>
+                            <div style={{ fontSize:11, marginBottom:3 }}>Follows: <b>{fmt(dayReel[`${p.key}_follows`])}</b></div>
+                            <div style={{ fontSize:11, marginBottom:3 }}>Subs: <b>{fmt(dayReel[`${p.key}_subscription`])}</b></div>
+                            <div style={{ fontSize:11, marginBottom:3 }}>Tips: <b>{fmtMoney(dayReel[`${p.key}_tips`])}</b></div>
+                            <div style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(dayReel[`${p.key}_revenue`])}</b></div>
                           </div>
                         ))}
-                        <div style={{ padding:'10px 12px', background:'#fff', borderRadius:8, borderTop:`2px solid ${rc}` }}>
+                        <div style={{ padding:'10px 12px', background:'#fff', borderRadius:8, borderTop:`2px solid ${C.text}` }}>
                           <div style={{ fontSize:9, color:C.muted, letterSpacing:1.5, textTransform:'uppercase', marginBottom:8, fontWeight:600 }}>TOTAL</div>
-                          <div style={{ fontSize:11, marginBottom:3 }}>Clicks: <b>{fmt(reel.total_clicks)}</b></div>
-                          <div style={{ fontSize:11, marginBottom:3 }}>Follows: <b>{fmt(reel.total_follows)}</b></div>
-                          <div style={{ fontSize:11, marginBottom:3 }}>Subs: <b>{fmt(reel.total_subscription)}</b></div>
-                          <div style={{ fontSize:11, marginBottom:3 }}>Tips: <b>{fmtMoney(reel.total_tips)}</b></div>
-                          <div style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(reel.total_revenue)}</b></div>
+                          <div style={{ fontSize:11, marginBottom:3 }}>Clicks: <b>{fmt(dayReel.total_clicks)}</b></div>
+                          <div style={{ fontSize:11, marginBottom:3 }}>Follows: <b>{fmt(dayReel.total_follows)}</b></div>
+                          <div style={{ fontSize:11, marginBottom:3 }}>Subs: <b>{fmt(dayReel.total_subscription)}</b></div>
+                          <div style={{ fontSize:11, marginBottom:3 }}>Tips: <b>{fmtMoney(dayReel.total_tips)}</b></div>
+                          <div style={{ fontSize:11 }}>Revenue: <b>{fmtMoney(dayReel.total_revenue)}</b></div>
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              )
-            })}
+                  </div>
+                )
+              })
+            })()}
           </div>
         </>
       )}
