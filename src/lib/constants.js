@@ -15,13 +15,15 @@ export const MODEL_COLORS = {
 export const getColor = (name) => MODEL_COLORS[name?.toLowerCase()] || '#8a8178'
 
 export const VIEW_DAYS = [
-  { key:'views_day1', label:'Day 1' },
-  { key:'views_day2', label:'Day 2' },
-  { key:'views_day3', label:'Day 3' },
-  { key:'views_day4', label:'Day 4' },
-  { key:'views_day5', label:'Day 5' },
-  { key:'views_day6', label:'Day 6' },
-  { key:'views_day7', label:'Day 7' },
+  { key:'views_day1',  label:'Day 1'    },
+  { key:'views_day2',  label:'Day 2'    },
+  { key:'views_day3',  label:'Day 3'    },
+  { key:'views_day4',  label:'Day 4'    },
+  { key:'views_day5',  label:'Day 5'    },
+  { key:'views_day6',  label:'Day 6'    },
+  { key:'views_day7',  label:'Day 7'    },
+  { key:'views_week2', label:'2nd Week' },
+  { key:'views_week3', label:'3rd Week' },
 ]
 
 export const TOTAL_METRICS = [
