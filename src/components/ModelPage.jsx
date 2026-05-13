@@ -110,10 +110,13 @@ export default function ModelPage({ model, reels, onBack }) {
         const reelsOnDay = byDate[date] || []
         const d = parseDate(date)
         row.label = `${d.toLocaleString('default',{month:'short'})} ${d.getDate()}`
-        row._total = reelsOnDay.reduce((s,r) => s+(Number(r.views_day1)||0), 0)
+        row._total = reelsOnDay.reduce((s,r) => {
+          const latest = Number(r.views_week3)||Number(r.views_week2)||Number(r.views_day7)||Number(r.views_day6)||Number(r.views_day5)||Number(r.views_day4)||Number(r.views_day3)||Number(r.views_day2)||Number(r.views_day1)||0
+          return s + latest
+        }, 0)
         for (let i = 0; i < slots; i++) {
           const reel = reelsOnDay[i]
-          row[`slot${i}`] = reel ? (Number(reel.views_day1)||0) : 0
+          row[`slot${i}`] = reel ? (Number(reel.views_week3)||Number(reel.views_week2)||Number(reel.views_day7)||Number(reel.views_day6)||Number(reel.views_day5)||Number(reel.views_day4)||Number(reel.views_day3)||Number(reel.views_day2)||Number(reel.views_day1)||0) : 0
           row[`reel${i}`] = reel ? reel.reel_number : null
         }
         return row
@@ -166,7 +169,7 @@ export default function ModelPage({ model, reels, onBack }) {
               </div>
               <div className="card" style={{ padding:'24px 16px 16px' }}>
                 <div style={{ fontSize:10, color:C.muted, letterSpacing:2, textTransform:'uppercase', marginBottom:4, paddingLeft:8 }}>Reels Per Day — View Count Breakdown</div>
-                <div style={{ fontSize:11, color:C.muted, paddingLeft:8, marginBottom:20 }}>Each segment = one reel · Height = Day 1 views · Number on top = daily total</div>
+                <div style={{ fontSize:11, color:C.muted, paddingLeft:8, marginBottom:20 }}>Each segment = one reel · Height = latest total views · Number on top = daily total</div>
                 <ResponsiveContainer width="100%" height={360}>
                   <BarChart data={rows} margin={{ top:24, right:10, left:0, bottom:40 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
@@ -247,7 +250,7 @@ export default function ModelPage({ model, reels, onBack }) {
                 {VIEW_DAYS.map((d, di) => (
                   <Bar key={d.key} dataKey={`gains[${di}]`} name={d.label} stackId="a"
                     fill={di < 3 ? REEL_COLORS[di] : '#e2ddd6'}
-                    radius={di === 6 ? [0,4,4,0] : [0,0,0,0]}>
+                    radius={di === 8 ? [0,4,4,0] : [0,0,0,0]}>
                     {di === 6 && (
                       <LabelList
                         dataKey={`gains[${di}]`}
