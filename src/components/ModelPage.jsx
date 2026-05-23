@@ -128,11 +128,13 @@ export default function ModelPage({ model, reels, onBack }) {
   // Weekly stacked chart (7-day horizontal)
   const weeklyChartData = useMemo(() => {
     return weekReels.map((reel, i) => {
+      const cumVals = VIEW_DAYS.map(d => Number(reel[d.key]) || 0)
+      const lastFilledIdx = cumVals.reduce((last, v, i) => v > 0 ? i : last, -1)
       const gains = VIEW_DAYS.map((d, di) => {
-        const val = Number(reel[d.key]) || 0
-        if (val === 0) return 0
-        const prev = di === 0 ? 0 : (Number(reel[VIEW_DAYS[di-1].key]) || 0)
-        return val - prev
+        const val = cumVals[di]
+        if (val === 0) return di <= lastFilledIdx + 1 && lastFilledIdx < 8 ? 1 : 0
+        const prev = di === 0 ? 0 : (cumVals[di-1] || 0)
+        return Math.max(0, val - prev)
       })
       return {
         reel: `#${reel.reel_number}`,
@@ -140,6 +142,7 @@ export default function ModelPage({ model, reels, onBack }) {
         date: reel.date,
         gains,
         cumulative: VIEW_DAYS.map(d => Number(reel[d.key])||0),
+        gainsTotal: 0, // invisible bar for total label
       }
     })
   }, [weekReels])
@@ -250,30 +253,30 @@ export default function ModelPage({ model, reels, onBack }) {
                 {VIEW_DAYS.map((d, di) => (
                   <Bar key={d.key} dataKey={`gains[${di}]`} name={d.label} stackId="a"
                     fill={di < 3 ? REEL_COLORS[di] : '#e2ddd6'}
-                    radius={di === 8 ? [0,4,4,0] : [0,0,0,0]}>
-                    {di === 0 && (
-                      <LabelList
-                        dataKey={`gains[${di}]`}
-                        position="right"
-                        content={(props) => {
-                          const { x, y, width, height, index } = props
-                          const reel = weeklyChartData[index]
-                          if (!reel) return null
-                          const total = reel.cumulative[reel.cumulative.findLastIndex(v => v > 0)]
-                          if (!total) return null
-                          // Calculate full bar width by summing all gains
-                          const totalWidth = reel.gains.reduce((s, g) => s + (g || 0), 0)
-                          return (
-                            <text x={x - width + totalWidth + 8} y={y + height / 2 + 4}
-                              fill="#1a1814" fontSize={11} fontFamily="'Jost',sans-serif" fontWeight={600}>
-                              {fmt(total)}
-                            </text>
-                          )
-                        }}
-                      />
-                    )}
-                  </Bar>
+                    radius={di === 8 ? [0,4,4,0] : [0,0,0,0]}
+                    isAnimationActive={false}
+                  />
                 ))}
+                {/* Label bar - sums all gains for total */}
+                <Bar dataKey="gainsTotal" stackId="b" fill="transparent" isAnimationActive={false} legendType="none">
+                  <LabelList
+                    dataKey="gainsTotal"
+                    position="right"
+                    content={(props) => {
+                      const { x, y, width, height, index } = props
+                      const reel = weeklyChartData[index]
+                      if (!reel) return null
+                      const total = reel.gains.reduce((s, g, gi) => s + (reel.cumulative[gi] > 0 ? g : 0), 0)
+                      if (!total) return null
+                      return (
+                        <text x={x + 8} y={y + height / 2 + 4}
+                          fill="#1a1814" fontSize={11} fontFamily="'Jost',sans-serif" fontWeight={600}>
+                          {fmt(total)}
+                        </text>
+                      )
+                    }}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
