@@ -251,7 +251,7 @@ export default function ModelPage({ model, reels, onBack }) {
                   <Bar key={d.key} dataKey={`gains[${di}]`} name={d.label} stackId="a"
                     fill={di < 3 ? REEL_COLORS[di] : '#e2ddd6'}
                     radius={di === 8 ? [0,4,4,0] : [0,0,0,0]}>
-                    {di === 6 && (
+                    {di === 0 && (
                       <LabelList
                         dataKey={`gains[${di}]`}
                         position="right"
@@ -261,8 +261,10 @@ export default function ModelPage({ model, reels, onBack }) {
                           if (!reel) return null
                           const total = reel.cumulative[reel.cumulative.findLastIndex(v => v > 0)]
                           if (!total) return null
+                          // Calculate full bar width by summing all gains
+                          const totalWidth = reel.gains.reduce((s, g) => s + (g || 0), 0)
                           return (
-                            <text x={x + width + 6} y={y + height / 2 + 4}
+                            <text x={x - width + totalWidth + 8} y={y + height / 2 + 4}
                               fill="#1a1814" fontSize={11} fontFamily="'Jost',sans-serif" fontWeight={600}>
                               {fmt(total)}
                             </text>
