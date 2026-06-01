@@ -116,6 +116,7 @@ export default function App() {
           </div>
           <button className={`nav-link ${page==='dashboard'?'active':''}`} style={{ marginRight:20 }} onClick={() => setPage('dashboard')}>Dashboard</button>
           <button className={`nav-link ${page==='weekly'?'active':''}`} style={{ marginRight:20 }} onClick={() => setPage('weekly')}>Weekly</button>
+          <button className={`nav-link ${page==='top'?'active':''}`} style={{ marginRight:20 }} onClick={() => setPage('top')}>Top Reels</button>
           {isAdmin && <button className={`nav-link ${page==='users'?'active':''}`} style={{ marginRight:20 }} onClick={() => setPage('users')}>Users</button>}
           <div style={{ display:'flex', flexWrap:'wrap', gap:3, flex:1, padding:'4px 0 4px 8px', overflow:'hidden' }}>
             {models.map(m => (
