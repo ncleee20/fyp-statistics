@@ -5,6 +5,7 @@ import LoginScreen from './components/LoginScreen'
 import UserManagement from './components/UserManagement'
 import WeeklySummary from './components/WeeklySummary'
 import ModelPage from './components/ModelPage'
+import TopReels from './components/TopReels'
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => getSession())
@@ -195,6 +196,7 @@ export default function App() {
       <main style={{ padding:'32px 28px 60px', maxWidth:1400, margin:'0 auto' }}>
 
         {activeModel && <ModelPage model={activeModel} reels={allData[activeModel] || []} onBack={() => setPage('dashboard')} />}
+        {page==='top' && <TopReels allData={allData} models={models} />}
         {page==='weekly' && <WeeklySummary allData={allData} models={models} />}
         {page==='users' && isAdmin && <UserManagement users={users} setUsers={setUsers} currentUser={currentUser} />}
         {page==='users' && !isAdmin && <div style={{ color:C.muted, padding:40, textAlign:'center' }}>Access denied.</div>}
